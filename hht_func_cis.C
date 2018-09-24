@@ -1,4 +1,4 @@
-#include "qchem.h"   /*Include the Q-Chem global header*/
+#include "qchem.h"   //Include the Q-Chem global header
 #include"BSetMgr.hh"
 #include"BasisSet.hh"
 #include "../cdman/moloop.h"
@@ -14,15 +14,16 @@ int analyze_diabat_tia(double * Amps, double * OccMO, double * VirtMO, int NMO, 
 
 void symmetrize(double *A, const int N, double *scr);
 
-void hht_func_cis() {
+void hht_func_cis(){
   printf("\n");
-  printf("##########################\n");
-  printf("# CIS, by Hung-Hsuan Teh #\n");
-  printf("##########################\n");
+  printf("#######\n");
+  printf("# CIS #");
+  printf("#######\n");
   printf("\n");
-  printf("# Only works for RHF, namely closed-shell systems w' all orbitals doubly occupied\n");
-  printf("# Assume nlinor=nbasis\n");
-  printf("\n");
+  printf("#Last update: 09/24/2018");
+  printf("#THREE parameters have to be assigned: neig, jmin and jmax\n");
+  printf("#Only works for RHF, namely closed-shell systems w' all orbitals doubly occupied\n");
+  printf("#Assume nlinor=nbasis\n");
 
   //READ INPUT
   int nbasis=bSetMgr.crntShlsStats(STAT_NBASIS);
@@ -36,14 +37,14 @@ void hht_func_cis() {
 
   //GET HF MO COEFF
   //[occ_a; vir_a; occ_b; vir_b]
-  double *mo_coeff=QAllocDouble(2*nbasis2); //factor 2 is for alpha+beta spins, each w' size nbasis2
-  VRload(mo_coeff,2*nbasis2,0.0); //initialize w' 0
-  FileMan(FM_READ,FILE_MO_COEFS,1,2*nbasis2,0,1,mo_coeff); //get hf mo coeff here
+  double *mo_coeff=QAllocDouble(nbasis2);
+  VRload(mo_coeff,nbasis2,0.0); //initialize w' 0
+  FileMan(FM_READ,FILE_MO_COEFS,1,nbasis2,0,1,mo_coeff); //get hf mo coeff here, only alpha spin is loaded
   double *mo_coeff_vir=mo_coeff+nbasis*nocc;
 
   //GET FOCK MATRIX IN MO BASIS (DIAG), used to calculate H1X later
   //In AO basis first (Q-Chem only gives the Fock matrix in AO basis)
-  double *fock_ao=QAllocDouble(2*nbasis2); //factor 2 is for alpha+beta spins
+  double *fock_ao=QAllocDouble(nbasis2);
   FileMan(FM_READ,FILE_FOCK_MATRIX,FM_DP,2*nbasis2,0,FM_BEG,fock_ao);
   //Then in MO basis, only do unitary transformation for alpha spin
   double *fock_mo=QAllocDouble(nbasis2); //should be diag, checked
@@ -51,7 +52,8 @@ void hht_func_cis() {
   AtimsB(scratch1,fock_ao,mo_coeff,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,1);
   AtimsB(fock_mo,mo_coeff,scratch1,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,2);
 
-  //H1*v (calculate invariant part first, Delta_eps=eps_a-eps_i)
+  //H1*v
+  //Calculate invariant part first, Delta_eps=eps_a-eps_i
   arma::vec Delta_eps(ncisbasis);
   int ii, aa; //dummy variables
   for(ii=0;ii<nocc;ii++){
@@ -60,49 +62,25 @@ void hht_func_cis() {
     }
   }
 
-  printf("\n\n\n\n\n\n");
-  printf("###################################################\n");
-  printf("# Print out the Fock matrix in MO basis\n");
-  printf("###################################################\n");
-  int xx,yy;
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("f_mo=%.6f, ",fock_mo[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-  printf("###################################################\n");
-  printf("# Print out the Fock matrix in AO basis\n");
-  printf("###################################################\n");
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("f_ao=%.6f, ",fock_ao[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-  printf("###################################################\n");
-  printf("# Also the MO coeff\n");
-  printf("###################################################\n");
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("C=%.6f, ",mo_coeff[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-  printf("\n\n\n\n\n\n");
-
-  //DAVIDSON ALGORITHM STARTS FROM HERE
-  //Parameters
-  int jmin=2; //j labels the number of guessing vectors for Davidson
-  int jmax=3;
+  //#######################################
+  //# DAVIDSON ALGORITHM STARTS FROM HERE #
+  //#######################################
+  //PARAMETERS
+  int jmin=5; //j labels the number of guessing vectors for Davidson
+  int jmax=10;
   int curj=jmin;
-  int iter_max=pow(10.0,4.0);
+  int iter_max=pow(10.0,2.0);
   double residual_threshold=pow(10.0,-8.0);
 
-  //Initial guess X
-  arma::mat X(ncisbasis,jmax); X.eye(); //every column is a state labeled w' ai, not ia
+  //INITIAL GUESS X
+  arma::mat X(ncisbasis+2,jmax);
+  X.zeros(); X(0,0)=1.0;
+  for(xx=0;xx<(curj-1);xx++){
+    X(ncisbasis+1-xx,xx+1)=1.0;
+  }
 
-  //Declaring variables for H1X, AOints, H2X and Davidson
+  //DECLARING VARIABLES
+  //For H1X, AOints, H2X and Davidson
   int jj, kk, ll; //dummy variables, jj runs for iteration
   arma::mat H1X(ncisbasis,jmax); H1X.zeros();
 
@@ -136,7 +114,8 @@ void hht_func_cis() {
   arma::vec onesforM(ncisbasis); onesforM.ones();
   arma::vec tD;
 
-  //Running the loop til convergence or reaching iter_max
+  //RUNNING THE LOOP
+  //Til convergence or reaching iter_max
   for(jj=0;jj<iter_max;jj++){
     //BUILD UP H^CIS*X IN SINGLE EXCITATION STATE |S_ia>={|Psi_ia>+|Psi_bar(i)bar(a)>}/sqrt(2)
     //<S_ia|H^CIS*X, i:occ, a:vir, _ia=_i^a, H=H1+H2
