@@ -52,13 +52,13 @@ void hht_func_cis(){
   AtimsB(scratch1,fock_ao,mo_coeff,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,1);
   AtimsB(fock_mo,mo_coeff,scratch1,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,2);
 
-  //H1*v
-  //Calculate invariant part first, Delta_eps=eps_a-eps_i
+  //H1*X
+  //Calculate invariant part first, Delta_eps=eps_a-eps_i (I make the index running with ia)
   arma::vec Delta_eps(ncisbasis);
-  int ii, aa; //dummy variables
-  for(ii=0;ii<nocc;ii++){
-    for(aa=0;aa<nvir;aa++){
-      Delta_eps(ii*nvir+aa)=fock_mo[(nbasis+1)*(nocc+aa)]-fock_mo[nbasis*ii+ii]; //Index: ai??check
+  int jj, kk, ll; //dummy variables, jj runs for # iterations
+  for(kk=0;kk<nocc;kk++){
+    for(ll=0;ll<nvir;ll++){
+      Delta_eps(ll*nocc+kk)=fock_mo[(nbasis+1)*(nocc+ll)]-fock_mo[nbasis*kk+kk];
     }
   }
 
@@ -73,15 +73,19 @@ void hht_func_cis(){
   double residual_threshold=pow(10.0,-8.0);
 
   //INITIAL GUESS X
-  arma::mat X(ncisbasis+2,jmax);
-  X.zeros(); X(0,0)=1.0;
-  for(xx=0;xx<(curj-1);xx++){
-    X(ncisbasis+1-xx,xx+1)=1.0;
+  arma::mat X(ncisbasis,jmax); X.zeros();
+  arma::mat scratch3_arma(ncisbasis,ncisbasis); scratch3_arma.zeros();
+  for(kk=0;kk<nocc;kk++){
+    for(ll=0;ll<nvir;ll++){
+      scratch3_arma(nocc-1-kk+nocc*ll,nvir*kk+ll)=1.0;
+    }
   }
+  printf("We need to check the form of scratch3_arma:\n");
+  scratch3_arma.print();
+  X.cols(0,curj-1)=scratch3_arma(0,curj-1);
 
   //DECLARING VARIABLES
   //For H1X, AOints, H2X and Davidson
-  int jj, kk, ll; //dummy variables, jj runs for iteration
   arma::mat H1X(ncisbasis,jmax); H1X.zeros();
 
   double *X_qchem=QAllocDouble(ncisbasis*jmax); VRload(X_qchem,ncisbasis*jmax,0.0);
@@ -128,9 +132,9 @@ void hht_func_cis(){
 
     //H2*X, Parray(AOints>Jv,Karray
     //X_qchem, as the corresponding input of X for qchem, [X1;X2;...]
-    for(kk=0;kk<curj;kk++){
-      for(ll=0;ll<ncisbasis;ll++){
-	X_qchem[kk*ncisbasis+ll]=X(ll,kk);
+    for(kk=0;kk<ncisbasis;kk++){
+      for(ll=0;ll<curj;ll++){
+	X_qchem[kk+ll*ncisbasis]=X(kk,ll);
       }
     }
 
@@ -141,12 +145,11 @@ void hht_func_cis(){
       curX_qchem=X_qchem+kk*ncisbasis; //pick up one state
       //calculate Parray
       curParray=Parray+nbas6d2*kk;
-      AtimsB(scratch1,mo_coeff_vir,curX_qchem,nbasis,nocc,nvir,nbasis,nbasis,nvir,1); //X_ai
-      AtimsB(curParray,scratch1,mo_coeff,nbasis,nbasis,nocc,nbasis,nbasis,nbasis,3);
+      AtimsB(scratch1,curX_qchem,mo_coeff_vir,nocc,nbasis,nvir,nocc,nocc,nbasis,3); //X_ia
+      AtimsB(curParray,mo_coeff_opt,scratch1,nbasis,nbasis,nocc,nbasis,nbasis,nocc,1);
       //transform to Pv form (half matrix)
       curPv=Pv+nb2car*kk;
       VRcopy(scratch1,curParray,nbasis2);
-      VRscale(scratch1,nbasis2,2.0); //2(jb|ai), Pv is for Jv and Parray is for Karray; thus, only Pv needs the factor 2.0
       symmetrize(scratch1,nbasis,scratch2);
       ScaV2M(scratch1,curPv,true,false);
     }
@@ -170,10 +173,10 @@ void hht_func_cis(){
     }
 
     //Finally, H2X, transform to armadillo type
-    for(kk=0;kk<curj;kk++){
-      for(ll=0;ll<ncisbasis;ll++){
+    for(kk=0;kk<ncisbasis;kk++){
+      for(ll=0;ll<curj;ll++){
 	//The ouput K from Q-Chem is actually the -K we know...
-	H2X(ll,kk)=JX[ll+kk*ncisbasis]+KX[ll+kk*ncisbasis];
+	H2X(kk,ll)=2.0*JX[kk+ll*ncisbasis]+KX[kk+ll*ncisbasis];
       }
     }
 
