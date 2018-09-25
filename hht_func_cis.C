@@ -63,7 +63,7 @@ void hht_func_cis() {
   int ii,aa; //dummy variables
   for(ii=0;ii<nocc;ii++){
     for(aa=0;aa<nvir;aa++){
-      Delta_eps(ii*nvir+aa)=fock_mo[(nbasis+1)*(nocc+aa)]-fock_mo[nbasis*ii+ii]; //Index: ai??check
+      Delta_eps(ii+aa*nocc)=fock_mo[(nbasis+1)*(nocc+aa)]-fock_mo[nbasis*ii+ii]; //Index: ai??check
     }
   }
 
@@ -76,7 +76,14 @@ void hht_func_cis() {
   double residual_threshold=pow(10.0,-8.0);
 
   //Initial guess X
-  arma::mat X(ncisbasis,jmax); X.eye(); //every column is a state labeled w' ai, not ia
+  arma::mat scratch3_arma(ncisbasis,ncisbasis); scratch3_arma.zeros();
+  arma::mat X(ncisbasis,jmax);
+  for(aa=0;aa<nvir;aa++){
+    for(ii=0;ii<nocc;ii++){
+      scratch3_arma(nocc-1-ii+nocc*aa,ii+nocc*aa)=1.0;
+    }
+  }
+  X.cols(0,curj-1)=scratch3_arma.cols(0,curj-1);
 
   //Declaring variables for H1X, AOints, H2X and Davidson
   int jj,kk,ll; //dummy variables, jj runs for iteration
@@ -138,8 +145,9 @@ void hht_func_cis() {
       curX_qchem=X_qchem+kk*ncisbasis; //pick up one state
       //calculate Parray
       curParray=Parray+nbas6d2*kk;
-      AtimsB(scratch1,mo_coeff_vir,curX_qchem,nbasis,nocc,nvir,nbasis,nbasis,nvir,1); //X_ai
-      AtimsB(curParray,scratch1,mo_coeff,nbasis,nbasis,nocc,nbasis,nbasis,nbasis,3);
+      AtimsB(scratch1,curX_qchem,mo_coeff_vir,nocc,nbasis,nvir,nocc,nocc,nbasis,3);
+      AtimsB(curParray,mo_coeff,scratch1,nbasis,nbasis,nocc,nbasis,nbasis,nocc,1);
+
       //transform to Pv form (half matrix)
       curPv=Pv+nb2car*kk;
       VRcopy(scratch1,curParray,nbasis2);
@@ -158,19 +166,20 @@ void hht_func_cis() {
       curJarray=Jarray+kk*nbas6d2;
       ScaV2M(curJarray,curJv,true,true);
       curJX=JX+kk*ncisbasis;
-      AtimsB(scratch1,curJarray,mo_coeff,nbasis,nocc,nbasis,nbasis,nbasis,nbasis,1);
-      AtimsB(curJX,mo_coeff_vir,scratch1,nvir,nocc,nbasis,nvir,nbasis,nbasis,2);
+      AtimsB(scratch1,curJarray,mo_coeff_vir,nbasis,nvir,nbasis,nbasis,nbasis,nbasis,1);
+      AtimsB(curJX,mo_coeff,scratch1,nocc,nvir,nbasis,nocc,nbasis,nbasis,2);
+
       curKarray=Karray+kk*nbas6d2;
       curKX=KX+kk*ncisbasis;
-      AtimsB(scratch1,curKarray,mo_coeff,nbasis,nocc,nbasis,nbasis,nbasis,nbasis,1);
-      AtimsB(curKX,mo_coeff_vir,scratch1,nvir,nocc,nbasis,nvir,nbasis,nbasis,2);
+      AtimsB(scratch1,curKarray,mo_coeff_vir,nbasis,nvir,nbasis,nbasis,nbasis,nbasis,1);
+      AtimsB(curKX,mo_coeff,scratch1,nocc,nvir,nbasis,nocc,nbasis,nbasis,2);
     }
 
     //Finally, H2X, transform to armadillo type
-    for(kk=0;kk<curj;kk++){
-      for(ll=0;ll<ncisbasis;ll++){
+    for(kk=0;kk<ncisbasis;kk++){
+      for(ll=0;ll<curj;ll++){
 	//The ouput K from Q-Chem is actually the -K we know...
-	H2X(ll,kk)=JX[ll+kk*ncisbasis]+KX[ll+kk*ncisbasis];
+	H2X(kk,ll)=JX[ll*ncisbasis+kk]+KX[ll*ncisbasis+kk];
       }
     }
 
