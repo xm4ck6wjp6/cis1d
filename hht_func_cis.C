@@ -145,9 +145,9 @@ void hht_func_cis() {
 
     //H2*X, Parray(AOints>Jv,Karray
     //X_qchem, as the corresponding input of X for qchem, [X1;X2;...]
-    for(xx=0;xx<curj;xx++){
-      for(yy=0;yy<ncisbasis;yy++){
-	X_qchem[xx*ncisbasis+yy]=X(yy,xx);
+    for(xx=0;xx<ncisbasis;xx++){
+      for(yy=0;yy<curj;yy++){
+	X_qchem[yy*ncisbasis+xx]=X(xx,yy);
       }
     }
 
