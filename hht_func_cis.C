@@ -20,12 +20,14 @@ void hht_func_cis() {
   printf("# CIS #\n");
   printf("#######\n");
   printf("\n");
-  printf("# by Hung-Hsuan Teh, teh@sas.upenn.edu\n");
+  printf("# by Hung-Hsuan Teh (teh@sas.upenn.edu)\n");
   printf("# Last update 09/15/2018\n");
   printf("# Only works for RHF, namely closed-shell systems w' all orbitals doubly occupied\n");
   printf("# Assume nlinor=nbasis\n");
   printf("# THREE parameters have to be determined: neig, jmin and jmax\n");
   printf("\n");
+  printf("# WARNING: residual_threshold should be small enough; otherwise, some eigenstates might be missed,\n");
+  printf("# ex. c2h4, hf, sto-3g, residual_threshold=10^-8\n");
 
   //READ INPUT
   int nbasis=bSetMgr.crntShlsStats(STAT_NBASIS);
@@ -36,10 +38,6 @@ void hht_func_cis() {
   int nbas6d=bSetMgr.crntShlsStats(STAT_NBAS6D); //for Parray, Jarray and Karray
   int nbas6d2=nbas6d*nbas6d;
   int nb2car=rem_read(REM_NB2CAR); //for Pv and Jv
-
-  printf("nocc=%d\n",nocc);
-  printf("nvir=%d\n",nvir);
-  printf("ncisbasis=%d\n",ncisbasis);
 
   //GET HF MO COEFF
   //[occ_a; vir_a; occ_b; vir_b]
@@ -58,24 +56,28 @@ void hht_func_cis() {
   AtimsB(scratch1,fock_ao,mo_coeff,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,1);
   AtimsB(fock_mo,mo_coeff,scratch1,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,2);
 
-  //H1*X (calculate invariant part first, Delta_eps=eps_a-eps_i)
+  //H1*X
+  //Calculate invariant part first, Delta_eps=eps_a-eps_i
   arma::vec Delta_eps(ncisbasis);
   int ii,aa; //dummy variables
   for(ii=0;ii<nocc;ii++){
     for(aa=0;aa<nvir;aa++){
-      Delta_eps(ii+aa*nocc)=fock_mo[(nbasis+1)*(nocc+aa)]-fock_mo[nbasis*ii+ii]; //Index: ai??check
+      Delta_eps(ii+aa*nocc)=fock_mo[(nbasis+1)*(nocc+aa)]-fock_mo[nbasis*ii+ii]; //Indices: ia
     }
   }
 
-  //DAVIDSON ALGORITHM STARTS FROM HERE
-  //Parameters
+  //#######################################
+  //# DAVIDSON ALGORITHM STARTS FROM HERE #
+
+  //PARAMETERS
+  int neig=3;
   int jmin=5; //j labels the number of guessing vectors for Davidson
   int jmax=10;
   int curj=jmin;
   int iter_max=pow(10.0,2.0);
-  double residual_threshold=pow(10.0,-8.0);
+  double residual_threshold=pow(10.0,-11.0);
 
-  //Initial guess X
+  //INITIAL GUESS X
   arma::mat scratch3_arma(ncisbasis,ncisbasis); scratch3_arma.zeros();
   arma::mat X(ncisbasis,jmax);
   for(aa=0;aa<nvir;aa++){
@@ -85,8 +87,10 @@ void hht_func_cis() {
   }
   X.cols(0,curj-1)=scratch3_arma.cols(0,curj-1);
 
-  //Declaring variables for H1X, AOints, H2X and Davidson
-  int jj,kk,ll; //dummy variables, jj runs for iteration
+  //DECLARING VARIABLES
+  //For H1X, AOints, H2X and Davidson
+  int jj,kk; //dummy variables, jj runs for iteration, kk runs for diff eigvalues
+  int xx,yy;
   arma::mat H1X(ncisbasis,jmax); H1X.zeros();
 
   double *X_qchem=QAllocDouble(ncisbasis*jmax); VRload(X_qchem,ncisbasis*jmax,0.0);
@@ -118,38 +122,45 @@ void hht_func_cis() {
   arma::vec M;
   arma::vec onesforM(ncisbasis); onesforM.ones();
   arma::vec tD;
+  arma::mat Xf;
+  arma::vec lambda_storage(neig); lambda_storage.zeros();
+  arma::mat X_storage(ncisbasis,neig); X_storage.zeros();
 
-  //Running the loop til convergence or reaching iter_max
+  //LOOP FOR CALCULATING kk-TH EIGENVALUE
+  for(kk=0;kk<neig;kk++){
+
+  //LOOP FOR EACH EIGENVALUE
+  //Til convergence or reaching iter_max
   for(jj=0;jj<iter_max;jj++){
     //BUILD UP H^CIS*X IN SINGLE EXCITATION STATE |S_ia>={|Psi_ia>+|Psi_bar(i)bar(a)>}/sqrt(2)
     //<S_ia|H^CIS*X, i:occ, a:vir, _ia=_i^a, H=H1+H2
     //=(eps_a-eps_i)*X_ia+sum_jb{2(jb|ai)-(ji|ab)}X_jb
 
     //H1*X
-    for(kk=0;kk<curj;kk++){
-      H1X.col(kk)=Delta_eps%X.col(kk);
+    for(xx=0;xx<curj;xx++){
+      H1X.col(xx)=Delta_eps%X.col(xx);
     }
 
     //H2*X, Parray(AOints>Jv,Karray
     //X_qchem, as the corresponding input of X for qchem, [X1;X2;...]
-    for(kk=0;kk<curj;kk++){
-      for(ll=0;ll<ncisbasis;ll++){
-	X_qchem[kk*ncisbasis+ll]=X(ll,kk);
+    for(xx=0;xx<curj;xx++){
+      for(yy=0;yy<ncisbasis;yy++){
+	X_qchem[xx*ncisbasis+yy]=X(yy,xx);
       }
     }
 
     //Calculate Pv and Parray, deal w' one state at a time
     VRload(Parray,nbas6d2*jmax,0.0);
     VRload(Pv,nb2car*jmax,0.0);
-    for(kk=0;kk<curj;kk++){
-      curX_qchem=X_qchem+kk*ncisbasis; //pick up one state
+    for(xx=0;xx<curj;xx++){
+      curX_qchem=X_qchem+xx*ncisbasis; //pick up one state
       //calculate Parray
-      curParray=Parray+nbas6d2*kk;
+      curParray=Parray+nbas6d2*xx;
       AtimsB(scratch1,curX_qchem,mo_coeff_vir,nocc,nbasis,nvir,nocc,nocc,nbasis,3);
       AtimsB(curParray,mo_coeff,scratch1,nbasis,nbasis,nocc,nbasis,nbasis,nocc,1);
 
       //transform to Pv form (half matrix)
-      curPv=Pv+nb2car*kk;
+      curPv=Pv+nb2car*xx;
       VRcopy(scratch1,curParray,nbasis2);
       VRscale(scratch1,nbasis2,2.0); //2(jb|ai), Pv is for Jv and Parray is for Karray; thus, only Pv needs the factor 2.0
       symmetrize(scratch1,nbasis,scratch2);
@@ -161,54 +172,78 @@ void hht_func_cis() {
     AOints(Jv,Karray,NULL,NULL,Pv,Parray,NULL,NULL,NULL,31);
 
     //Unpack Jv and transform Jarray and Karray to be in CIS basis (JX and KX)
-    for(kk=0;kk<curj;kk++){
-      curJv=Jv+kk*nb2car;
-      curJarray=Jarray+kk*nbas6d2;
+    for(xx=0;xx<curj;xx++){
+      curJv=Jv+xx*nb2car;
+      curJarray=Jarray+xx*nbas6d2;
       ScaV2M(curJarray,curJv,true,true);
-      curJX=JX+kk*ncisbasis;
+      curJX=JX+xx*ncisbasis;
       AtimsB(scratch1,curJarray,mo_coeff_vir,nbasis,nvir,nbasis,nbasis,nbasis,nbasis,1);
       AtimsB(curJX,mo_coeff,scratch1,nocc,nvir,nbasis,nocc,nbasis,nbasis,2);
 
-      curKarray=Karray+kk*nbas6d2;
-      curKX=KX+kk*ncisbasis;
+      curKarray=Karray+xx*nbas6d2;
+      curKX=KX+xx*ncisbasis;
       AtimsB(scratch1,curKarray,mo_coeff_vir,nbasis,nvir,nbasis,nbasis,nbasis,nbasis,1);
       AtimsB(curKX,mo_coeff,scratch1,nocc,nvir,nbasis,nocc,nbasis,nbasis,2);
     }
 
     //Finally, H2X, transform to armadillo type
-    for(kk=0;kk<ncisbasis;kk++){
-      for(ll=0;ll<curj;ll++){
+    for(xx=0;xx<ncisbasis;xx++){
+      for(yy=0;yy<curj;yy++){
 	//The ouput K from Q-Chem is actually the -K we know...
-	H2X(kk,ll)=JX[ll*ncisbasis+kk]+KX[ll*ncisbasis+kk];
+	H2X(xx,yy)=JX[yy*ncisbasis+xx]+KX[yy*ncisbasis+xx];
       }
     }
 
     HX=H1X+H2X; //total HX in CIS basis
+
+    //Main Davidson
     redH=X.t()*HX; redH=redH.cols(0,curj-1).rows(0,curj-1);
     eig_sym(lambda,u,redH);
-    residual_new=HX.cols(0,curj-1)*u.col(0)-lambda(0)*X.cols(0,curj-1)*u.col(0);
+    residual_new=HX.cols(0,curj-1)*u.col(kk)-lambda(kk)*X.cols(0,curj-1)*u.col(kk);
     if(norm(residual_new,2)<=residual_threshold){
-      printf("After %d loop(s), it converges!\n",jj);
-      printf("The lowest eigen value is %.6f\n",lambda(0));
-      printf("The corresponding eigenvector is:\n");
-      X.print();
+      Xf=X.cols(0,curj-1)*u;
+      lambda_storage(kk)=lambda(kk);
+      X_storage.col(kk)=Xf.col(kk);
       break;
     }
     residual=residual_new;
+
     if(curj>=jmax){
       X.cols(0,jmin-1)=X.cols(0,curj-1)*u.cols(0,jmin-1);
       X.cols(jmin,jmax-1).zeros(); //all other elements should be zero
       curj=jmin;
     }
-    M=Delta_eps-lambda(0)*onesforM; //this is actually NOT Davidson algorithm, need heavy comment later...
+
+    M=Delta_eps-lambda(kk)*onesforM; //this is actually NOT Davidson algorithm, need heavy comment later...
     tD=residual.col(0)/M; //D means Davidson
     //normalization
-    for(kk=0;kk<curj;kk++){
-      tD=tD-dot(tD,X.col(kk))*X.col(kk);
+    for(xx=0;xx<curj;xx++){
+      tD=tD-dot(tD,X.col(xx))*X.col(xx);
     }
     tD=tD/norm(tD,2);
     X.col(curj)=tD;
     curj++;
+  }
+
+  }
+  //#######################################
+
+  //PRINT
+  printf("\n");
+  printf("#Results of CIS:\n");
+  printf("\n");
+  printf("Correlation Energy for %d State(s):\n",neig);
+  for(kk=0;kk<neig;kk++){
+    printf("lambda%d=%.6f, ",kk,lambda_storage(kk));
+  }
+  printf("\n");
+  printf("\n");
+  printf("Corresponding Eigen State(s), X:\n");
+  for(xx=0;xx<(ncisbasis);xx++){
+    for(kk=0;kk<neig;kk++){
+      printf("X%d=%.6f, ",kk,X_storage(xx,kk));
+    }
+    printf("\n");
   }
 
   return;
