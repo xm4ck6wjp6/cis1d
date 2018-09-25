@@ -1,4 +1,4 @@
-#include "qchem.h"   /*Include the Q-Chem global header*/
+#include "qchem.h"   //Include the Q-Chem global header
 #include"BSetMgr.hh"
 #include"BasisSet.hh"
 #include "../cdman/moloop.h"
@@ -16,12 +16,15 @@ void symmetrize(double *A, const int N, double *scr);
 
 void hht_func_cis() {
   printf("\n");
-  printf("##########################\n");
-  printf("# CIS, by Hung-Hsuan Teh #\n");
-  printf("##########################\n");
+  printf("#######\n");
+  printf("# CIS #\n");
+  printf("#######\n");
   printf("\n");
+  printf("# by Hung-Hsuan Teh, teh@sas.upenn.edu\n");
+  printf("# Last update 09/15/2018\n");
   printf("# Only works for RHF, namely closed-shell systems w' all orbitals doubly occupied\n");
   printf("# Assume nlinor=nbasis\n");
+  printf("# THREE parameters have to be determined: neig, jmin and jmax\n");
   printf("\n");
 
   //READ INPUT
@@ -40,60 +43,29 @@ void hht_func_cis() {
 
   //GET HF MO COEFF
   //[occ_a; vir_a; occ_b; vir_b]
-  double *mo_coeff=QAllocDouble(2*nbasis2); //factor 2 is for alpha+beta spins, each w' size nbasis2
-  VRload(mo_coeff,2*nbasis2,0.0); //initialize w' 0
-  FileMan(FM_READ,FILE_MO_COEFS,1,2*nbasis2,0,1,mo_coeff); //get hf mo coeff here
+  double *mo_coeff=QAllocDouble(nbasis2);
+  VRload(mo_coeff,nbasis2,0.0); //initialize w' 0
+  FileMan(FM_READ,FILE_MO_COEFS,1,nbasis2,0,1,mo_coeff); //get hf mo coeff here, only alpha spin
   double *mo_coeff_vir=mo_coeff+nbasis*nocc;
 
   //GET FOCK MATRIX IN MO BASIS (DIAG), used to calculate H1X later
   //In AO basis first (Q-Chem only gives the Fock matrix in AO basis)
-  double *fock_ao=QAllocDouble(2*nbasis2); //factor 2 is for alpha+beta spins
-  FileMan(FM_READ,FILE_FOCK_MATRIX,FM_DP,2*nbasis2,0,FM_BEG,fock_ao);
+  double *fock_ao=QAllocDouble(nbasis2);
+  FileMan(FM_READ,FILE_FOCK_MATRIX,FM_DP,nbasis2,0,FM_BEG,fock_ao);
   //Then in MO basis, only do unitary transformation for alpha spin
-  double *fock_mo=QAllocDouble(nbasis2); //should be diag, checked
+  double *fock_mo=QAllocDouble(nbasis2);
   double *scratch1=QAllocDouble(nbasis2);
   AtimsB(scratch1,fock_ao,mo_coeff,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,1);
   AtimsB(fock_mo,mo_coeff,scratch1,nbasis,nbasis,nbasis,nbasis,nbasis,nbasis,2);
 
-  //H1*v (calculate invariant part first, Delta_eps=eps_a-eps_i)
+  //H1*X (calculate invariant part first, Delta_eps=eps_a-eps_i)
   arma::vec Delta_eps(ncisbasis);
-  int ii, aa; //dummy variables
+  int ii,aa; //dummy variables
   for(ii=0;ii<nocc;ii++){
     for(aa=0;aa<nvir;aa++){
       Delta_eps(ii*nvir+aa)=fock_mo[(nbasis+1)*(nocc+aa)]-fock_mo[nbasis*ii+ii]; //Index: ai??check
     }
   }
-
-  printf("\n\n\n\n\n\n");
-  printf("###################################################\n");
-  printf("# Print out the Fock matrix in MO basis\n");
-  printf("###################################################\n");
-  int xx,yy;
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("f_mo=%.6f, ",fock_mo[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-  printf("###################################################\n");
-  printf("# Print out the Fock matrix in AO basis\n");
-  printf("###################################################\n");
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("f_ao=%.6f, ",fock_ao[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-  printf("###################################################\n");
-  printf("# Also the MO coeff\n");
-  printf("###################################################\n");
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("C=%.6f, ",mo_coeff[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-  printf("\n\n\n\n\n\n");
 
   //DAVIDSON ALGORITHM STARTS FROM HERE
   //Parameters
@@ -105,17 +77,9 @@ void hht_func_cis() {
 
   //Initial guess X
   arma::mat X(ncisbasis,jmax); X.eye(); //every column is a state labeled w' ai, not ia
-  // arma::mat X(ncisbasis,jmax); X.zeros();
-  // arma::mat scratch3_arma(ncisbasis,ncisbasis); scratch3_arma.zeros();
-  // for(kk=0;kk<nocc;kk++){
-  //   for(ll=0;ll<nvir;ll++){
-  //     scratch3_arma(nocc-1-kk+nocc*ll,nvir*kk+ll)=1.0;
-  //   }
-  // }
-  // X.cols(0,curj-1)=scratch3_arma.cols(0,curj-1);
 
   //Declaring variables for H1X, AOints, H2X and Davidson
-  int jj, kk, ll; //dummy variables, jj runs for iteration
+  int jj,kk,ll; //dummy variables, jj runs for iteration
   arma::mat H1X(ncisbasis,jmax); H1X.zeros();
 
   double *X_qchem=QAllocDouble(ncisbasis*jmax); VRload(X_qchem,ncisbasis*jmax,0.0);
