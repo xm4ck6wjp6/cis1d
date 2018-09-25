@@ -20,14 +20,16 @@ void hht_func_cis() {
   printf("# CIS #\n");
   printf("#######\n");
   printf("\n");
-  printf("# by Hung-Hsuan Teh (teh@sas.upenn.edu)\n");
+  printf("# By HUNG-HSUAN TEH (teh@sas.upenn.edu)\n");
   printf("# Last update 09/15/2018\n");
   printf("# Only works for RHF, namely closed-shell systems w' all orbitals doubly occupied\n");
+  printf("# Only singlet states are considered\n");
   printf("# Assume nlinor=nbasis\n");
   printf("# THREE parameters have to be determined: neig, jmin and jmax\n");
   printf("\n");
   printf("# WARNING: residual_threshold should be small enough; otherwise, some eigenstates might be missed,\n");
   printf("# ex. c2h4, hf, sto-3g, residual_threshold=10^-8\n");
+  printf("# WARNING: Even when residual_threshold is small, bad initial guess still gives results w' missing eigenvalues\n");
 
   //READ INPUT
   int nbasis=bSetMgr.crntShlsStats(STAT_NBASIS);
@@ -162,7 +164,6 @@ void hht_func_cis() {
       //transform to Pv form (half matrix)
       curPv=Pv+nb2car*xx;
       VRcopy(scratch1,curParray,nbasis2);
-      VRscale(scratch1,nbasis2,2.0); //2(jb|ai), Pv is for Jv and Parray is for Karray; thus, only Pv needs the factor 2.0
       symmetrize(scratch1,nbasis,scratch2);
       ScaV2M(scratch1,curPv,true,false);
     }
@@ -190,7 +191,7 @@ void hht_func_cis() {
     for(xx=0;xx<ncisbasis;xx++){
       for(yy=0;yy<curj;yy++){
 	//The ouput K from Q-Chem is actually the -K we know...
-	H2X(xx,yy)=JX[yy*ncisbasis+xx]+KX[yy*ncisbasis+xx];
+	H2X(xx,yy)=2.0*JX[yy*ncisbasis+xx]+KX[yy*ncisbasis+xx];
       }
     }
 
