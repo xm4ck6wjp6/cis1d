@@ -44,25 +44,6 @@ void hht_func_tddft() {
   int nbas6d2=nbas6d*nbas6d;
   int nb2car=rem_read(REM_NB2CAR); //for Pv and Jv
 
-  //#################
-  //# DFT VARIABLES #
-  int jobNum=0; //inferred from dftman.C
-  double *pD1E=NULL;
-  double Ex;
-  double Ec;
-  double *pFxc_v=QAllocDouble(nb2car); VRload(pFxc_v,nb2car,0.0);
-  double *pFxc=QAllocDouble(nbasis2); VRload(pFxc,nbasis2,0.0);
-  XCFunctional XCFunc = rem_read(REM_LEVEXC) != -1 ? read_xcfunc(rem_read(REM_LEVEXC), (rem_read(REM_LEVCOR) <= XCFUNC_MAX) ? rem_read(REM_LEVCOR):0) : 0; //stolen from rem_setup.C
-
-  BasisSet BasisDen(bSetMgr.crntCode()); //stolen from anlman/stsdata.C
-  BasisSet BasisOrb(bSetMgr.crntCode());
-  int bCodeDen=BasisDen.code();
-  int bCodeOrb=BasisOrb.code();
-  int GrdTyp=rem_read(REM_IGRDTY); //Stolen from functionals.C
-  int IPrint = rem_read(REM_SCF_PRINT); //Stolen from scfman/scfman.C
-  int iterSCF=0;  
-  //#################
-
   //GET HF MO COEFF
   //[occ_a; vir_a; occ_b; vir_b]
   double *mo_coeff=QAllocDouble(nbasis2);
@@ -90,50 +71,11 @@ void hht_func_tddft() {
     }
   }
 
-  printf("\n\n\n\n\n\n");
-  printf("###################################################\n");
-  printf("# Print out the Fock matrix in MO basis\n");
-  printf("###################################################\n");
-  int xx,yy;
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("f_mo=%.2f, ",fock_mo[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-
-  printf("###################################################\n");
-  printf("# Print out the Fock matrix in AO basis\n");
-  printf("###################################################\n");
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("f_ao=%.2f, ",fock_ao[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-
-  printf("###################################################\n");
-  printf("# Also the MO coeff\n");
-  printf("###################################################\n");
-  for(xx=0;xx<nbasis;xx++){
-    for(yy=0;yy<nbasis;yy++){
-      printf("C=%.2f, ",mo_coeff[xx+yy*nbasis]);
-    }
-    printf("\n");
-  }
-  printf("\n\n\n\n\n\n");
-
-  //#######################
-  //# DFT, DENSITY MATRIX #
-  double *Den=QAllocDouble(nbasis2);
-  FileMan(FM_READ,FILE_DENSITY_MATRIX,FM_DP,nbasis2,0,FM_BEG,Den);
-  //#######################
-
   //#######################################
   //# DAVIDSON ALGORITHM STARTS FROM HERE #
 
   //PARAMETERS
-  int neig=3;
+  int neig=1;
   int jmin=5; //j labels the number of guessing vectors for Davidson
   int jmax=10;
   int curj=jmin;
@@ -153,7 +95,7 @@ void hht_func_tddft() {
   //DECLARING VARIABLES
   //For H1X, AOints, H2X and Davidson
   int jj,kk; //dummy variables, jj runs for iteration, kk runs for diff eigvalues
-  //  int xx,yy;
+  int xx,yy;
   arma::mat H1X(ncisbasis,jmax); H1X.zeros();
 
   double *X_qchem=QAllocDouble(ncisbasis*jmax); VRload(X_qchem,ncisbasis*jmax,0.0);
@@ -198,6 +140,10 @@ void hht_func_tddft() {
 
   //LOOP FOR CALCULATING kk-TH EIGENVALUE
   for(kk=0;kk<neig;kk++){
+
+    printf("\n");
+    printf("kk=%d\n",kk);
+    fflush(stdout);
 
   //LOOP FOR EACH EIGENVALUE
   //Til convergence or reaching iter_max
@@ -246,12 +192,12 @@ void hht_func_tddft() {
 
     //######################
     //# DFT, EXCHANGE PART #
-    for(kk=0;kk<curj;kk++){
-      curParray=Parray+nbas6d2*kk;
+    for(xx=0;xx<curj;xx++){
+      curParray=Parray+nbas6d2*xx;
       symmetrize(curParray,nbasis,scratch2);
     }
 
-    tdXcMtrx(XCFunc,Parray,Den,XCarray,curj,nbas6d,bCodeDen,GrdTyp);
+    DFTimplicit1StDrvOfXCMtrx(XCarray,Parray,curj,0);
     //######################
 
     //Unpack Jv and transform Jarray and Karray to be in CIS basis (JX and KX)
@@ -270,10 +216,10 @@ void hht_func_tddft() {
 
       //##########################
       //# DFT, EXCHANGE FUNC * X #
-      curXCarray=XCarray+kk*nbas6d2;
-      curXCX=XCX+kk*ncisbasis;
-      AtimsB(scratch1,curXCarray,mo_coeff,nbasis,nocc,nbasis,nbasis,nbasis,nbasis,1);
-      AtimsB(curXCX,mo_coeff_vir,scratch1,nvir,nocc,nbasis,nvir,nbasis,nbasis,2);
+      curXCarray=XCarray+xx*nbas6d2;
+      curXCX=XCX+xx*ncisbasis;
+      AtimsB(scratch1,curXCarray,mo_coeff_vir,nbasis,nvir,nbasis,nbasis,nbasis,nbasis,1);
+      AtimsB(curXCX,mo_coeff,scratch1,nocc,nvir,nbasis,nocc,nbasis,nbasis,2);
       //##########################
     }
 
@@ -281,7 +227,8 @@ void hht_func_tddft() {
     for(xx=0;xx<ncisbasis;xx++){
       for(yy=0;yy<curj;yy++){
   	//The ouput K from Q-Chem is actually the -K we know...
-  	H2X(xx,yy)=2.0*JX[yy*ncisbasis+xx]+KX[yy*ncisbasis+xx];
+	H2X(xx,yy)=2.0*JX[yy*ncisbasis+xx]+XCX[yy*ncisbasis+xx]; //# DFT
+  	//H2X(xx,yy)=2.0*JX[yy*ncisbasis+xx]+KX[yy*ncisbasis+xx];
       }
     }
 
@@ -291,6 +238,9 @@ void hht_func_tddft() {
     redH=X.t()*HX; redH=redH.cols(0,curj-1).rows(0,curj-1);
     eig_sym(lambda,u,redH);
     residual_new=HX.cols(0,curj-1)*u.col(kk)-lambda(kk)*X.cols(0,curj-1)*u.col(kk);
+    printf("\n");
+    printf("eigenvalue=%.6f\n",lambda(kk));
+    printf("norm(residual_new)=%.6f\n",norm(residual_new,2));
     if(norm(residual_new,2)<=residual_threshold){
       Xf=X.cols(0,curj-1)*u;
       lambda_storage(kk)=lambda(kk);
